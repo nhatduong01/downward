@@ -991,3 +991,14 @@ create_fast_downward_library(
         algorithms/sccs
     DEPENDENCY_ONLY
 )
+
+create_fast_downward_library(
+        NAME validator
+        HELP "Plugin containing the code for potential heuristics"
+        SOURCES
+        search_algorithms/validator
+        DEPENDS
+        search_common
+        successor_generator
+        task_properties
+)
