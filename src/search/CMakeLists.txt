@@ -997,6 +997,7 @@ create_fast_downward_library(
         HELP "Plugin containing the code for potential heuristics"
         SOURCES
         search_algorithms/validator
+        search_algorithms/plan_parser
         DEPENDS
         search_common
         successor_generator

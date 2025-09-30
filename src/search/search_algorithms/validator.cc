@@ -3,6 +3,8 @@
 //
 #include "validator.h"
 
+#include "plan_parser.h"
+
 #include "../plugins/plugin.h"
 
 using namespace std;
@@ -18,6 +20,9 @@ void Validator::print_statistics() const {
  }
 
 SearchStatus Validator::step() {
+     PlanParser parser(this->plan_file);
+     ParsedPlan plan = parser.parse();
+     plan.print_plan();
      return SearchStatus::SOLVED;
  }
 
@@ -27,6 +32,10 @@ class ValidatorFeature : public plugins::TypedFeature<SearchAlgorithm, Validator
      ValidatorFeature(): TypedFeature("validator") {
          add_option<std::string>("plan_file", "Path to the"
                                               "plan file");
+         add_option<utils::Verbosity>("verbosity", "Verbosity level");
+         add_option<OperatorCost>("cost_type", "Cost type");
+         add_option<double>("max_time", "Max time");
+         add_option<int>("bound", "Bound");
      }
 
      virtual shared_ptr<Validator> create_component(const plugins::Options &opts) const override {
