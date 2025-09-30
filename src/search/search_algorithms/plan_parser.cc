@@ -18,6 +18,13 @@ void ParsedPlan::print_plan() const {
         cout << ")" << endl;
     }
 }
+string PlanAction::to_string() const {
+    string result = this->name;
+    for (const auto &a : this->arguments) {
+        result += " " + a;
+    }
+    return result;
+}
 string PlanParser::trim(const string &s) {
     size_t first = s.find_first_not_of(" \t\r\n");
     if (first == string::npos) return "";

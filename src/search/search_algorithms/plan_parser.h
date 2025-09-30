@@ -13,6 +13,7 @@ using namespace std;
 struct PlanAction {
     string name;
     vector <string> arguments;
+    string to_string() const;
 };
 
 struct ParsedPlan {

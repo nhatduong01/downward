@@ -6,6 +6,7 @@
 #include "plan_parser.h"
 
 #include "../plugins/plugin.h"
+#include "../task_utils/task_properties.h"
 
 using namespace std;
 using utils::ExitCode;
@@ -23,6 +24,24 @@ SearchStatus Validator::step() {
      PlanParser parser(this->plan_file);
      ParsedPlan plan = parser.parse();
      plan.print_plan();
+     State curr_state = this->state_registry.get_initial_state();
+     OperatorsProxy all_ops = this->task_proxy.get_operators();
+     for (auto & each_op : plan.actions) {
+         OperatorProxy op = task_properties::find_operator(each_op.to_string(), all_ops);
+         if (task_properties::is_applicable(op, curr_state)) {
+             curr_state = this->state_registry.get_successor_state(curr_state, op);
+         }
+         else {
+             cout << "Operator is not applicable: " <<each_op.to_string() << endl;
+         }
+     }
+     bool is_goal = task_properties::is_goal_state(this->task_proxy, curr_state);
+     if (is_goal) {
+         cout << "The plan is valid!!\n";
+     }
+     else {
+         cout << "The plan is not valid\n";
+     }
      return SearchStatus::SOLVED;
  }
 

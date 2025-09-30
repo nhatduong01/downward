@@ -22,6 +22,10 @@ inline bool is_goal_state(TaskProxy task, const State &state) {
     }
     return true;
 }
+inline OperatorProxy find_operator(std::string name, OperatorsProxy all_ops) {
+    for (auto op : all_ops) if (op.get_name() == name) return op;
+    std::runtime_error("operator not found");
+}
 
 /*
   Return true iff all operators have cost 1.
