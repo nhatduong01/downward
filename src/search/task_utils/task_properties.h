@@ -23,8 +23,28 @@ inline bool is_goal_state(TaskProxy task, const State &state) {
     return true;
 }
 inline OperatorProxy find_operator(std::string name, OperatorsProxy all_ops) {
-    for (auto op : all_ops) if (op.get_name() == name) return op;
+    for (auto op : all_ops)
+        if (op.get_name() == name)
+            return op;
     std::runtime_error("operator not found");
+}
+
+inline std::vector<OperatorProxy> find_applicable_operators(
+    const State &curr_state, const OperatorsProxy &all_ops) {
+    std::vector<OperatorProxy> result;
+    for (const OperatorProxy &op : all_ops) {
+        if (is_applicable(op, curr_state))
+            result.push_back(op);
+    }
+    return result;
+}
+template<class T>
+bool contained_in_vector(std::vector<T> &all_eles, T elem) {
+    for (auto &el : all_eles) {
+        if (el == elem)
+            return true;
+    }
+    return false;
 }
 
 /*
