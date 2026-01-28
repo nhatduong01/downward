@@ -5,6 +5,8 @@
 #ifndef DOWNWARD_VALIDATOR_H
 #define DOWNWARD_VALIDATOR_H
 
+#include "plan_parser.h"
+
 #include "../search_algorithm.h"
 
 namespace plugins {
@@ -14,7 +16,11 @@ class Options;
 namespace validator {
 
 class Validator : public SearchAlgorithm {
-    std::string plan_file;
+    std::string python_file;
+    std::string problem_file;
+    std::string domain_file;
+    int num_actions_applied;
+    ParsedPlan plan;
 public:
     Validator(const plugins::Options &opts);
     SearchStatus step() override;
@@ -24,6 +30,10 @@ public:
     std::vector<State> random_walk(const State &, int, int);
     void random_walk_recursive(const State &, std::vector<State> &, int);
     void print_statistics() const override;
+    void run_plan_generator();
+    void print_fluent_facts(const State &) const;
+    void copy_and_write_new_problem_file(const State &) const;
+    State traverse(int num_actions);
 };
 
 }

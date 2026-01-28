@@ -8,14 +8,133 @@
 #include "../plugins/plugin.h"
 #include "../task_utils/task_properties.h"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <random>
+#include <sstream>
+#include <stdexcept>
+// #include <string>
 
 using namespace std;
 using utils::ExitCode;
 
 namespace validator {
 Validator::Validator(const plugins::Options &opts)
-    : SearchAlgorithm(opts), plan_file(opts.get<string>("python_program")) {
+    : SearchAlgorithm(opts),
+      python_file(opts.get<string>("python_program")),
+      problem_file(opts.get<string>("problem_file")),
+      domain_file(opts.get<string>("domain_file")),
+      num_actions_applied(opts.get<int>("num_actions")) {
+    run_plan_generator();
+    PlanParser parser("generated_plan.plan");
+    plan = parser.parse();
+    plan.print_plan();
+}
+
+void Validator::run_plan_generator() {
+    std::string generated_plan = "generated_plan.plan";
+    std::string generated_log = "generated_plan.log";
+    const std::string python_generator =
+        "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine/generate_plan_for_example.py";
+    const std::string python_exec =
+        "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine/venv/bin/python";
+    std::ostringstream cmd;
+    cmd << python_exec << " " << python_generator << " -t 30 -p " << domain_file
+        << " " << problem_file << " " << python_file << " " << generated_plan
+        << " " << generated_log;
+
+    int ret = std::system(cmd.str().c_str());
+
+    if (ret == -1) {
+        throw std::runtime_error("Failed to start Python process");
+    }
+
+    if (WIFEXITED(ret)) {
+        int exit_code = WEXITSTATUS(ret);
+        if (exit_code != 0) {
+            std::ostringstream err;
+            err << "Python plan generator failed with exit code " << exit_code;
+            throw std::runtime_error(err.str());
+        }
+    } else {
+        throw std::runtime_error("Python process terminated abnormally");
+    }
+}
+
+void Validator::print_fluent_facts(const State &curr_state) const {
+    std::cout << "Print out the facts of the current state\n";
+    for (int i = 0; i < curr_state.size(); i++) {
+        FactProxy fact = curr_state[i];
+        cout << fact.get_name() << "\n";
+        cout << "fact name is: " << fact.printPDDLformat() << "\n";
+    }
+}
+
+void Validator::copy_and_write_new_problem_file(const State &curr_state) const {
+    filesystem::path old_path = this->problem_file;
+    filesystem::path new_path =
+        old_path.parent_path() / (old_path.stem().string() + "-new.pddl");
+    ifstream old_file(old_path.string());
+    ofstream new_file(new_path.string());
+    if (!old_file || !new_file) {
+        throw std::runtime_error("Could not open file");
+    }
+
+    std::string each_line;
+    bool inside_init = false;
+    bool after_init_before_goal = false;
+
+    while (getline(old_file, each_line)) {
+        if (each_line.find("(:init") != std::string::npos) {
+            inside_init = true;
+            after_init_before_goal = false;
+
+            new_file << "(:init\n";
+
+            for (auto i = 0; i < curr_state.size(); i++) {
+                new_file << "    " << curr_state[i].printPDDLformat() << "\n";
+            }
+
+            new_file << ")\n"; // close init
+            continue;
+        }
+
+        if (inside_init) {
+            inside_init = false;
+            after_init_before_goal = true;
+            continue;
+        }
+
+        // We reach goal section
+        if (after_init_before_goal) {
+            if (each_line.find("(:goal") != std::string::npos) {
+                after_init_before_goal = false;
+                new_file << each_line << "\n";
+            }
+            continue;
+        }
+
+        // No problem, just copy!
+        new_file << each_line << "\n";
+    }
+    cout << "Copied to file: " << new_path.string() << "\n";
+}
+State Validator::traverse(int num_actions) {
+    State curr_state = task_proxy.get_initial_state();
+    for (int i = 0; i < num_actions; i++) {
+        OperatorProxy op = task_properties::find_operator(
+            plan.actions[i].to_string(), task_proxy.get_operators());
+        cout << "Applied action: " << op.get_name() << "\n";
+        if (task_properties::is_applicable(op, curr_state)) {
+            curr_state = curr_state.get_unregistered_successor(op);
+        } else {
+            cout << "Operator is not applicable: "
+                 << plan.actions[i].to_string() << endl;
+            throw std::runtime_error("Inapplicable action");
+        }
+    }
+    return curr_state;
 }
 
 void Validator::print_statistics() const {
@@ -36,8 +155,8 @@ void Validator::random_walk_recursive(
         task_properties::find_applicable_operators(
             curr, task_proxy.get_operators());
     OperatorProxy random_op = pick_random_operator(applicable_ops);
-    // State successor = state_registry.get_successor_state(curr, random_op);
-    State successor = curr.get_unregistered_successor(random_op);
+    State successor = state_registry.get_successor_state(curr, random_op);
+    // State successor = curr.get_unregistered_successor(random_op);
     if (!task_properties::contained_in_vector(visited_states, successor)) {
         visited_states.push_back(successor);
     }
@@ -55,40 +174,7 @@ std::vector<State> Validator::random_walk(
     return visited_states;
 }
 
-void Validator::print_static_facts(State &curr_state) {
-    std::cout << "Print out the facts of the current state\n";
-    TaskProxy curr_task = curr_state.get_task();
-    VariablesProxy all_var = curr_task.get_variables();
-    FactsProxy all_fact = all_var.get_facts();
-    for (const FactProxy &fact : all_fact) {
-        std::cout << "Fact name: " << fact.get_name()
-                  << " value: " << fact.get_value() << "\n";
-    }
-    std::cout << "Print out the true fact from mutex, num variables: "
-              << all_var.size() << "\n";
-    for (VariableProxy var : all_var) {
-        FactProxy fact = curr_state[var]; // get value index
-        std::cout << "Fact: " << fact.get_name() << std::endl;
-    }
-
-    int i = 0;
-    int k = 0;
-    std::cout << "Print all the fact";
-    for (VariableProxy var : all_var) {
-        std::cout << "Var " << i++ << ": " << var.get_name()
-                  << "  (domain size: " << var.get_domain_size() << ")\n";
-        for (int j = 0; j < var.get_domain_size(); ++j) {
-            FactProxy curr_fact = var.get_fact(j);
-            std::cout << "Fact " << ++k << ": " << curr_fact.get_name()
-                      << " Value: " << curr_fact.get_value() << "\n";
-        }
-    }
-}
-
 void Validator::validate() {
-    PlanParser parser(this->plan_file);
-    ParsedPlan plan = parser.parse();
-    plan.print_plan();
     State curr_state = this->state_registry.get_initial_state();
     OperatorsProxy all_ops = this->task_proxy.get_operators();
     int idx = 0;
@@ -100,9 +186,6 @@ void Validator::validate() {
             curr_state =
                 this->state_registry.get_successor_state(curr_state, op);
             idx++;
-            if (idx == 1) {
-                print_static_facts(curr_state);
-            }
         } else {
             cout << "Operator is not applicable: " << each_op.to_string()
                  << endl;
@@ -119,9 +202,11 @@ void Validator::validate() {
 }
 
 SearchStatus Validator::step() {
+    // validate();
     vector<State> visited_states =
         random_walk(this->state_registry.get_initial_state(), 2, 3);
     cout << "Size of the visited states: " << visited_states.size() << endl;
+    copy_and_write_new_problem_file(traverse(num_actions_applied));
     return SearchStatus::SOLVED;
 }
 
@@ -132,6 +217,9 @@ public:
         add_option<std::string>(
             "python_program", "Path to the"
                               "python program");
+        add_option<std::string>("domain_file");
+        add_option<std::string>("problem_file");
+        add_option<int>("num_actions");
         add_option<utils::Verbosity>("verbosity", "Verbosity level");
         add_option<OperatorCost>("cost_type", "Cost type");
         add_option<double>("max_time", "Max time");

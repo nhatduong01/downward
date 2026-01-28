@@ -170,6 +170,8 @@ public:
         return task->get_fact_name(fact);
     }
 
+    std::string printPDDLformat() const;
+
     bool operator==(const FactProxy &other) const {
         assert(task == other.task);
         return fact == other.fact;
@@ -742,6 +744,27 @@ inline FactProxy::FactProxy(const AbstractTask &task, int var_id, int value)
 
 inline VariableProxy FactProxy::get_variable() const {
     return VariableProxy(*task, fact.var);
+}
+
+inline std::string FactProxy::printPDDLformat() const {
+    std::string name = get_name();
+    const std::string prefix = "Atom ";
+
+    if (name.rfind(prefix, 0) == 0) {
+        name.erase(0, prefix.size());
+    }
+
+    name.erase(
+        std::remove_if(
+            name.begin(), name.end(), [](char c) { return c == ','; }),
+        name.end());
+
+    for (char &c : name) {
+        if (c == '(')
+            c = ' ';
+    }
+
+    return "(" + name;
 }
 
 inline bool does_fire(const EffectProxy &effect, const State &state) {
