@@ -1,6 +1,8 @@
 #ifndef SEARCH_ALGORITHMS_ENFORCED_HILL_CLIMBING_SEARCH_H
 #define SEARCH_ALGORITHMS_ENFORCED_HILL_CLIMBING_SEARCH_H
 
+#include "validator.h"
+
 #include "../evaluation_context.h"
 #include "../open_list.h"
 #include "../search_algorithm.h"
@@ -51,6 +53,7 @@ class EnforcedHillClimbingSearch : public SearchAlgorithm {
     void expand(EvaluationContext &eval_context);
     void reach_state(const State &parent, OperatorID op_id, const State &state);
     SearchStatus ehc();
+    validator::Validator validator;
 
 protected:
     virtual void initialize() override;
@@ -61,7 +64,14 @@ public:
         const std::shared_ptr<Evaluator> &h, PreferredUsage preferred_usage,
         const std::vector<std::shared_ptr<Evaluator>> &preferred,
         OperatorCost cost_type, int bound, double max_time,
-        const std::string &description, utils::Verbosity verbosity);
+        const std::string &description, utils::Verbosity verbosity,
+        const plugins::Options &opts);
+    unordered_set<StateID> random_walk();
+    void recursive_random_walk(
+        unordered_set<StateID> &visited_states, State curr, int depth,
+        bool only_add_leaves);
+    State traverse(int num_actions);
+    void writing_new_files(unordered_set<StateID>);
 
     virtual void print_statistics() const override;
 };

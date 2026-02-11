@@ -2,10 +2,10 @@
 #define STATE_ID_H
 
 #include <iostream>
+#include<functional>
 
 // For documentation on classes relevant to storing and working with registered
 // states see the file state_registry.h.
-
 class StateID {
     friend class StateRegistry;
     friend std::ostream &operator<<(std::ostream &os, StateID id);
@@ -34,6 +34,19 @@ public:
     bool operator!=(const StateID &other) const {
         return !(*this == other);
     }
+
+    int get_value() const {
+        return value;
+    }
 };
+
+template<>
+struct std::hash<StateID> {
+    size_t operator()(const StateID &id) const noexcept {
+        return std::hash<int>{}(id.get_value());
+    }
+};
+
+
 
 #endif

@@ -20,6 +20,7 @@ class Validator : public SearchAlgorithm {
     std::string problem_file;
     std::string domain_file;
     int num_actions_applied;
+    int seed;
     ParsedPlan plan;
 public:
     Validator(const plugins::Options &opts);
@@ -32,8 +33,9 @@ public:
     void print_statistics() const override;
     void run_plan_generator();
     void print_fluent_facts(const State &) const;
-    void copy_and_write_new_problem_file(const State &) const;
+    void copy_and_write_new_problem_file(const State &, int) const;
     State traverse(int num_actions);
+    OperatorProxy pick_random_operator(const std::vector<OperatorProxy> &ops);
 };
 
 }

@@ -1002,4 +1002,8 @@ create_fast_downward_library(
         search_common
         successor_generator
         task_properties
+        plugin_astar
+        landmark_cut_heuristic
+        enforced_hill_climbing_search
+        ff_heuristic
 )

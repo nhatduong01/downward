@@ -7,6 +7,7 @@
 #include "../open_lists/tiebreaking_open_list.h"
 #include "../plugins/plugin.h"
 #include "../task_utils/successor_generator.h"
+#include "../task_utils/task_properties.h"
 #include "../utils/logging.h"
 #include "../utils/system.h"
 
@@ -52,7 +53,7 @@ EnforcedHillClimbingSearch::EnforcedHillClimbingSearch(
     const shared_ptr<Evaluator> &h, PreferredUsage preferred_usage,
     const vector<shared_ptr<Evaluator>> &preferred, OperatorCost cost_type,
     int bound, double max_time, const string &description,
-    utils::Verbosity verbosity)
+    utils::Verbosity verbosity, const plugins::Options &opts)
     : SearchAlgorithm(cost_type, bound, max_time, description, verbosity),
       evaluator(h),
       preferred_operator_evaluators(preferred),
@@ -60,7 +61,8 @@ EnforcedHillClimbingSearch::EnforcedHillClimbingSearch(
       current_eval_context(state_registry.get_initial_state(), &statistics),
       current_phase_start_g(-1),
       num_ehc_phases(0),
-      last_num_expanded(-1) {
+      last_num_expanded(-1),
+      validator(opts) {
     for (const shared_ptr<Evaluator> &eval : preferred_operator_evaluators) {
         eval->get_path_dependent_evaluators(path_dependent_evaluators);
     }
@@ -168,11 +170,92 @@ void EnforcedHillClimbingSearch::expand(EvaluationContext &eval_context) {
     node.close();
 }
 
+void EnforcedHillClimbingSearch::recursive_random_walk(
+    unordered_set<StateID> &visited_states, State curr, int depth,
+    bool only_add_leaves) {
+    if (depth < 0)
+        return;
+    vector<OperatorProxy> applicable_ops =
+        task_properties::find_applicable_operators(
+            curr, task_proxy.get_operators());
+    if (!only_add_leaves) {
+        visited_states.insert(curr.get_id());
+    } else {
+        // When depth == 0, when we dont have any applicable action left or when
+        // it is the goal
+        if (depth == 0 || applicable_ops.empty() ||
+            task_properties::is_goal_state(task_proxy, curr)) {
+            visited_states.insert(curr.get_id());
+        }
+    }
+
+    if (applicable_ops.empty() ||
+        task_properties::is_goal_state(task_proxy, curr))
+        return;
+    OperatorProxy random_op = validator.pick_random_operator(applicable_ops);
+    State successor = state_registry.get_successor_state(curr, random_op);
+    cout << "The state ID is: " << successor.get_id() << "\n";
+    recursive_random_walk(
+        visited_states, successor, depth - 1, only_add_leaves);
+}
+
+State EnforcedHillClimbingSearch::traverse(int num_actions) {
+    State curr = state_registry.get_initial_state();
+    Plan plan = this->get_plan();
+    for (int i = 0; i < num_actions; i++) {
+        OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
+        curr = state_registry.get_successor_state(curr, op);
+    }
+    return curr;
+}
+void EnforcedHillClimbingSearch::writing_new_files(
+    unordered_set<StateID> states) {
+    cout << "Beginning writing_new_files\n";
+    int idx = 0;
+    for (auto state : states) {
+        validator.copy_and_write_new_problem_file(
+            state_registry.lookup_state(state), idx);
+        idx++;
+    }
+    cout << "Ending writing_new_files\n";
+}
+
+unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
+    cout << "Starting random walk\n";
+    int num_applied_actions = 3;
+    int depth = 4;
+    bool only_add_leaves = false;
+    int num_walks = 3;
+    Plan plan = this->get_plan();
+    unordered_set<StateID> visited_states;
+    // vector<State> visited_states;
+    if (num_applied_actions > plan.size()) {
+        throw std::logic_error(
+            "Number of applied actions exceeds the number of actions");
+    }
+    // for (int i = 0; i < num_applied_actions; i++) {
+    //     State starting_state = traverse(i);
+    //     for (int j = 0; j < num_walks; j++)
+    //         recursive_random_walk(
+    //             visited_states, starting_state, depth, only_add_leaves);
+    // }
+    State starting_state = traverse(num_applied_actions);
+    for (int j = 0; j < num_walks; j++)
+        recursive_random_walk(
+            visited_states, starting_state, depth, only_add_leaves);
+
+    cout << "End random walk\n";
+    return visited_states;
+}
+
 SearchStatus EnforcedHillClimbingSearch::step() {
     last_num_expanded = statistics.get_expanded();
     search_progress.check_progress(current_eval_context);
 
     if (check_goal_and_set_plan(current_eval_context.get_state())) {
+        unordered_set<StateID> states = random_walk();
+        cout << "Number of states " << states.size() << endl;
+        writing_new_files(states);
         return SOLVED;
     }
 
@@ -274,6 +357,11 @@ public:
         add_list_option<shared_ptr<Evaluator>>(
             "preferred", "use preferred operators of these evaluators", "[]");
         add_search_algorithm_options_to_feature(*this, "ehc");
+        add_option<std::string>("domain_file");
+        add_option<std::string>("problem_file");
+        add_option<int>("num_actions");
+        add_option<int>("seed");
+        add_option<std::string>("python_program");
     }
 
     virtual shared_ptr<EnforcedHillClimbingSearch> create_component(
@@ -282,7 +370,7 @@ public:
             opts.get<shared_ptr<Evaluator>>("h"),
             opts.get<PreferredUsage>("preferred_usage"),
             opts.get_list<shared_ptr<Evaluator>>("preferred"),
-            get_search_algorithm_arguments_from_options(opts));
+            get_search_algorithm_arguments_from_options(opts), opts);
     }
 };
 

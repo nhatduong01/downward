@@ -25,11 +25,12 @@ Validator::Validator(const plugins::Options &opts)
       python_file(opts.get<string>("python_program")),
       problem_file(opts.get<string>("problem_file")),
       domain_file(opts.get<string>("domain_file")),
-      num_actions_applied(opts.get<int>("num_actions")) {
-    run_plan_generator();
-    PlanParser parser("generated_plan.plan");
-    plan = parser.parse();
-    plan.print_plan();
+      num_actions_applied(opts.get<int>("num_actions")),
+      seed(opts.get<int>("seed")) {
+    // run_plan_generator();
+    // PlanParser parser("generated_plan.plan");
+    // plan = parser.parse();
+    // plan.print_plan();
 }
 
 void Validator::run_plan_generator() {
@@ -71,10 +72,15 @@ void Validator::print_fluent_facts(const State &curr_state) const {
     }
 }
 
-void Validator::copy_and_write_new_problem_file(const State &curr_state) const {
+void Validator::copy_and_write_new_problem_file(
+    const State &curr_state, int variant_id) const {
     filesystem::path old_path = this->problem_file;
+    string base_name = old_path.stem().string();
+    filesystem::path output_dir = old_path.parent_path() / base_name;
+    filesystem::create_directory(output_dir);
     filesystem::path new_path =
-        old_path.parent_path() / (old_path.stem().string() + "-new.pddl");
+        output_dir / (base_name + "-" + std::to_string(variant_id) + ".pddl");
+
     ifstream old_file(old_path.string());
     ofstream new_file(new_path.string());
     if (!old_file || !new_file) {
@@ -93,7 +99,10 @@ void Validator::copy_and_write_new_problem_file(const State &curr_state) const {
             new_file << "(:init\n";
 
             for (auto i = 0; i < curr_state.size(); i++) {
-                new_file << "    " << curr_state[i].printPDDLformat() << "\n";
+                string new_line = curr_state[i].printPDDLformat();
+                const string none_of_those = "none of those";
+                if (new_line.find(none_of_those) == string::npos)
+                    new_file << "    " << new_line << "\n";
             }
 
             new_file << ")\n"; // close init
@@ -141,8 +150,9 @@ void Validator::print_statistics() const {
     cout << "Validation statistics:" << endl;
 }
 
-OperatorProxy pick_random_operator(const std::vector<OperatorProxy> &ops) {
-    static thread_local std::mt19937 rng{std::random_device{}()};
+OperatorProxy Validator::pick_random_operator(
+    const std::vector<OperatorProxy> &ops) {
+    static thread_local std::mt19937 rng{(unsigned)this->seed};
     std::uniform_int_distribution<std::size_t> dist(0, ops.size() - 1);
     return ops[dist(rng)];
 }
@@ -154,6 +164,9 @@ void Validator::random_walk_recursive(
     vector<OperatorProxy> applicable_ops =
         task_properties::find_applicable_operators(
             curr, task_proxy.get_operators());
+    if (applicable_ops.empty()) {
+        return;
+    }
     OperatorProxy random_op = pick_random_operator(applicable_ops);
     State successor = state_registry.get_successor_state(curr, random_op);
     // State successor = curr.get_unregistered_successor(random_op);
@@ -206,7 +219,10 @@ SearchStatus Validator::step() {
     vector<State> visited_states =
         random_walk(this->state_registry.get_initial_state(), 2, 3);
     cout << "Size of the visited states: " << visited_states.size() << endl;
-    copy_and_write_new_problem_file(traverse(num_actions_applied));
+    for (int i = 0; i < visited_states.size(); i++) {
+        copy_and_write_new_problem_file(visited_states[i], i);
+    }
+    // copy_and_write_new_problem_file(traverse(num_actions_applied));
     return SearchStatus::SOLVED;
 }
 
@@ -220,6 +236,7 @@ public:
         add_option<std::string>("domain_file");
         add_option<std::string>("problem_file");
         add_option<int>("num_actions");
+        add_option<int>("seed");
         add_option<utils::Verbosity>("verbosity", "Verbosity level");
         add_option<OperatorCost>("cost_type", "Cost type");
         add_option<double>("max_time", "Max time");
