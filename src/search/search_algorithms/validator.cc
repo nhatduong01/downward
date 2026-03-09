@@ -26,7 +26,10 @@ Validator::Validator(const plugins::Options &opts)
       problem_file(opts.get<string>("problem_file")),
       domain_file(opts.get<string>("domain_file")),
       num_actions_applied(opts.get<int>("num_actions")),
-      seed(opts.get<int>("seed")) {
+      seed(opts.get<int>("seed")),
+      depth(opts.get<int>("depth")),
+      num_walks(opts.get<int>("num_walks")),
+      only_add_leaves(opts.get<bool>("only_add_leaves")) {
     // run_plan_generator();
     // PlanParser parser("generated_plan.plan");
     // plan = parser.parse();

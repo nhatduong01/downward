@@ -175,26 +175,27 @@ void EnforcedHillClimbingSearch::recursive_random_walk(
     bool only_add_leaves) {
     if (depth < 0)
         return;
+
     vector<OperatorProxy> applicable_ops =
         task_properties::find_applicable_operators(
             curr, task_proxy.get_operators());
+
+    if (applicable_ops.empty() ||
+    task_properties::is_goal_state(task_proxy, curr))
+        return;
+
     if (!only_add_leaves) {
         visited_states.insert(curr.get_id());
     } else {
-        // When depth == 0, when we dont have any applicable action left or when
-        // it is the goal
-        if (depth == 0 || applicable_ops.empty() ||
-            task_properties::is_goal_state(task_proxy, curr)) {
+        // When depth == 0
+        if (depth == 0) {
             visited_states.insert(curr.get_id());
         }
     }
 
-    if (applicable_ops.empty() ||
-        task_properties::is_goal_state(task_proxy, curr))
-        return;
+
     OperatorProxy random_op = validator.pick_random_operator(applicable_ops);
     State successor = state_registry.get_successor_state(curr, random_op);
-    cout << "The state ID is: " << successor.get_id() << "\n";
     recursive_random_walk(
         visited_states, successor, depth - 1, only_add_leaves);
 }
@@ -222,14 +223,10 @@ void EnforcedHillClimbingSearch::writing_new_files(
 
 unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
     cout << "Starting random walk\n";
-    int num_applied_actions = 3;
-    int depth = 4;
-    bool only_add_leaves = false;
-    int num_walks = 3;
     Plan plan = this->get_plan();
     unordered_set<StateID> visited_states;
     // vector<State> visited_states;
-    if (num_applied_actions > plan.size()) {
+    if (validator.num_actions_applied > plan.size()) {
         throw std::logic_error(
             "Number of applied actions exceeds the number of actions");
     }
@@ -239,10 +236,10 @@ unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
     //         recursive_random_walk(
     //             visited_states, starting_state, depth, only_add_leaves);
     // }
-    State starting_state = traverse(num_applied_actions);
-    for (int j = 0; j < num_walks; j++)
+    State starting_state = traverse(validator.num_actions_applied);
+    for (int j = 0; j < validator.num_walks; j++)
         recursive_random_walk(
-            visited_states, starting_state, depth, only_add_leaves);
+            visited_states, starting_state, validator.depth, validator.only_add_leaves);
 
     cout << "End random walk\n";
     return visited_states;
@@ -360,7 +357,10 @@ public:
         add_option<std::string>("domain_file");
         add_option<std::string>("problem_file");
         add_option<int>("num_actions");
-        add_option<int>("seed");
+        add_option<int>("seed", "Random Seed", "0");
+        add_option<int>("depth", "Depth of the Walk", "4");
+        add_option<int>("num_walks", "Number of random walks", "3");
+        add_option<bool>("only_add_leaves", "TRUE");
         add_option<std::string>("python_program");
     }
 

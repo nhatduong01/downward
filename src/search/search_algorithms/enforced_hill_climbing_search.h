@@ -55,6 +55,7 @@ class EnforcedHillClimbingSearch : public SearchAlgorithm {
     SearchStatus ehc();
     validator::Validator validator;
 
+
 protected:
     virtual void initialize() override;
     virtual SearchStatus step() override;

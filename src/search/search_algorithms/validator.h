@@ -19,10 +19,13 @@ class Validator : public SearchAlgorithm {
     std::string python_file;
     std::string problem_file;
     std::string domain_file;
-    int num_actions_applied;
-    int seed;
     ParsedPlan plan;
 public:
+    int num_actions_applied;
+    int seed;
+    int depth;
+    bool only_add_leaves;
+    int num_walks;
     Validator(const plugins::Options &opts);
     SearchStatus step() override;
     static void print_static_facts(State &);
