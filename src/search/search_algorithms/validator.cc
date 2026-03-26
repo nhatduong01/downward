@@ -77,60 +77,74 @@ void Validator::print_fluent_facts(const State &curr_state) const {
 
 void Validator::copy_and_write_new_problem_file(
     const State &curr_state, int variant_id) const {
-    filesystem::path old_path = this->problem_file;
-    string base_name = old_path.stem().string();
-    filesystem::path output_dir = old_path.parent_path() / base_name;
-    filesystem::create_directory(output_dir);
-    filesystem::path new_path =
-        output_dir / (base_name + "-" + std::to_string(variant_id) + ".pddl");
-
-    ifstream old_file(old_path.string());
-    ofstream new_file(new_path.string());
-    if (!old_file || !new_file) {
-        throw std::runtime_error("Could not open file");
-    }
-
-    std::string each_line;
-    bool inside_init = false;
-    bool after_init_before_goal = false;
-
-    while (getline(old_file, each_line)) {
-        if (each_line.find("(:init") != std::string::npos) {
-            inside_init = true;
-            after_init_before_goal = false;
-
-            new_file << "(:init\n";
-
-            for (auto i = 0; i < curr_state.size(); i++) {
-                string new_line = curr_state[i].printPDDLformat();
-                const string none_of_those = "none of those";
-                if (new_line.find(none_of_those) == string::npos)
-                    new_file << "    " << new_line << "\n";
-            }
-
-            new_file << ")\n"; // close init
-            continue;
+        filesystem::path old_path = this->problem_file;
+        string base_name = old_path.stem().string();
+        filesystem::path output_dir = old_path.parent_path() / base_name;
+        filesystem::create_directory(output_dir);
+        filesystem::path new_path =
+            output_dir /
+            (base_name + "-" + std::to_string(variant_id) + ".pddl");
+    {
+        ifstream old_file(old_path.string());
+        ofstream new_file(new_path.string());
+        if (!old_file || !new_file) {
+            throw std::runtime_error("Could not open file");
         }
 
-        if (inside_init) {
-            inside_init = false;
-            after_init_before_goal = true;
-            continue;
-        }
+        std::string each_line;
+        bool inside_init = false;
+        bool after_init_before_goal = false;
 
-        // We reach goal section
-        if (after_init_before_goal) {
-            if (each_line.find("(:goal") != std::string::npos) {
+        while (getline(old_file, each_line)) {
+            if (each_line.find("(:init") != std::string::npos) {
+                inside_init = true;
                 after_init_before_goal = false;
-                new_file << each_line << "\n";
-            }
-            continue;
-        }
 
-        // No problem, just copy!
-        new_file << each_line << "\n";
+                new_file << "(:init\n";
+
+                for (auto i = 0; i < curr_state.size(); i++) {
+                    string new_line = curr_state[i].printPDDLformat();
+                    const string none_of_those = "none of those";
+                    if (new_line.find(none_of_those) == string::npos)
+                        new_file << "    " << new_line << "\n";
+                }
+
+                new_file << ")\n"; // close init
+                continue;
+            }
+
+            if (inside_init) {
+                inside_init = false;
+                after_init_before_goal = true;
+                continue;
+            }
+
+            // We reach goal section
+            if (after_init_before_goal) {
+                if (each_line.find("(:goal") != std::string::npos) {
+                    after_init_before_goal = false;
+                    new_file << each_line << "\n";
+                }
+                continue;
+            }
+
+            // No problem, just copy!
+            new_file << each_line << "\n";
+        }
     }
     cout << "Copied to file: " << new_path.string() << "\n";
+
+    try {
+        if (!checkIfSolvable(new_path.string())) {
+            cout << "No solution found, deleting file: " << new_path.string()
+                 << "\n";
+            filesystem::remove(new_path);
+        }
+    } catch (const std::runtime_error &e) {
+        cout << "Planner error: " << e.what()
+             << ", deleting file: " << new_path.string() << "\n";
+        // filesystem::remove(new_path);
+    }
 }
 State Validator::traverse(int num_actions) {
     State curr_state = task_proxy.get_initial_state();
@@ -158,6 +172,27 @@ OperatorProxy Validator::pick_random_operator(
     static thread_local std::mt19937 rng{(unsigned)this->seed};
     std::uniform_int_distribution<std::size_t> dist(0, ops.size() - 1);
     return ops[dist(rng)];
+}
+bool Validator::checkIfSolvable(string file_path) const {
+    std::ostringstream cmd;
+    // Time out after 10 minutes
+    cmd << "timeout 600 ../alternative_downward/fast-downward.py " << this->domain_file << " " << file_path
+        << " --search \"ehc(ff())\"" << " > /dev/null 2>&1";  // suppress all output;
+    int ret = std::system(cmd.str().c_str());
+    int exit_code = WEXITSTATUS(ret);
+
+    if (exit_code == 0) {
+        return true; // Solution found
+    } else if (exit_code == 12) {
+        return false; // No solution exists
+    } else if (exit_code == 124) {
+        cout << "Planner timed out after 10 minutes for file: "<< file_path << "\n";
+        return false;
+    }
+    else {
+        throw std::runtime_error(
+            "Planner failed with exit code: " + std::to_string(exit_code));
+    }
 }
 
 void Validator::random_walk_recursive(

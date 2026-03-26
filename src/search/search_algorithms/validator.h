@@ -39,6 +39,7 @@ public:
     void copy_and_write_new_problem_file(const State &, int) const;
     State traverse(int num_actions);
     OperatorProxy pick_random_operator(const std::vector<OperatorProxy> &ops);
+    bool checkIfSolvable(string file_path) const;
 };
 
 }
