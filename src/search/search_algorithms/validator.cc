@@ -143,7 +143,7 @@ void Validator::copy_and_write_new_problem_file(
     } catch (const std::runtime_error &e) {
         cout << "Planner error: " << e.what()
              << ", deleting file: " << new_path.string() << "\n";
-        // filesystem::remove(new_path);
+        filesystem::remove(new_path);
     }
 }
 State Validator::traverse(int num_actions) {

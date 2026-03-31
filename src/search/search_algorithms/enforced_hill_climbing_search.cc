@@ -316,6 +316,11 @@ SearchStatus EnforcedHillClimbingSearch::ehc() {
         }
     }
     log << "No solution - FAILED" << endl;
+    cout << "Begin random walk with number of applied actions is 0";
+    this->validator.num_actions_applied = 0;
+    unordered_set<StateID> states = random_walk();
+    cout << "Number of states " << states.size() << endl;
+    writing_new_files(states);
     return FAILED;
 }
 
