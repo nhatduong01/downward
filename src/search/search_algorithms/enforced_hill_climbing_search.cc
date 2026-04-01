@@ -1,4 +1,5 @@
 #include "enforced_hill_climbing_search.h"
+#include <algorithm>
 
 #include "../algorithms/ordered_set.h"
 #include "../evaluators/g_evaluator.h"
@@ -15,6 +16,7 @@ using namespace std;
 using utils::ExitCode;
 
 namespace enforced_hill_climbing_search {
+
 using GEval = g_evaluator::GEvaluator;
 using PrefEval = pref_evaluator::PrefEvaluator;
 
@@ -62,7 +64,9 @@ EnforcedHillClimbingSearch::EnforcedHillClimbingSearch(
       current_phase_start_g(-1),
       num_ehc_phases(0),
       last_num_expanded(-1),
-      validator(opts) {
+      validator(opts),
+      output_dir(opts.get<string>("output_dir")),      // add this
+      num_instances(opts.get<int>("num_instances")){
     for (const shared_ptr<Evaluator> &eval : preferred_operator_evaluators) {
         eval->get_path_dependent_evaluators(path_dependent_evaluators);
     }
@@ -170,6 +174,18 @@ void EnforcedHillClimbingSearch::expand(EvaluationContext &eval_context) {
     node.close();
 }
 
+void EnforcedHillClimbingSearch::random_walk_and_write() {
+    unordered_set<StateID> states = random_walk();
+    if ((int)states.size() < num_instances) {
+        cout << "Warning: only " << states.size() << " for "<< validator.problem_file
+             << " states available, needed " << num_instances << "\n";
+    }
+    vector<StateID> states_vec(states.begin(), states.end());
+    std::shuffle(states_vec.begin(), states_vec.end(), std::mt19937{(unsigned)validator.seed});
+    cout << "Number of states: " << states_vec.size() << endl;
+    writing_new_files(states_vec);
+}
+
 void EnforcedHillClimbingSearch::recursive_random_walk(
     unordered_set<StateID> &visited_states, State curr, int depth,
     bool only_add_leaves) {
@@ -210,14 +226,18 @@ State EnforcedHillClimbingSearch::traverse(int num_actions) {
     return curr;
 }
 void EnforcedHillClimbingSearch::writing_new_files(
-    unordered_set<StateID> states) {
+    vector<StateID> states) {
     cout << "Beginning writing_new_files\n";
     int idx = 0;
+    int written = 0;
     for (auto state : states) {
-        validator.copy_and_write_new_problem_file(
-            state_registry.lookup_state(state), idx);
+        if (written >= num_instances) break;
+        bool success = validator.copy_and_write_new_problem_file(
+            state_registry.lookup_state(state), idx, output_dir);
+        if (success) written++;
         idx++;
     }
+    cout << "Written " << written << " files" << " for" << validator.problem_file  <<"\n";
     cout << "Ending writing_new_files\n";
 }
 
@@ -226,9 +246,15 @@ unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
     Plan plan = this->get_plan();
     unordered_set<StateID> visited_states;
     // vector<State> visited_states;
-    if (validator.num_actions_applied > plan.size()) {
-        throw std::logic_error(
-            "Number of applied actions exceeds the number of actions");
+    // if (validator.num_actions_applied > plan.size()) {
+    //     throw std::logic_error(
+    //         "Number of applied actions exceeds the number of actions");
+    // }
+    while (validator.num_actions_applied > (int)plan.size()) {
+        validator.num_actions_applied --;
+    }
+    if (validator.num_actions_applied == 0) {
+        cout << "Applying from initial state for " << validator.problem_file << "\n";
     }
     // for (int i = 0; i < num_applied_actions; i++) {
     //     State starting_state = traverse(i);
@@ -250,9 +276,7 @@ SearchStatus EnforcedHillClimbingSearch::step() {
     search_progress.check_progress(current_eval_context);
 
     if (check_goal_and_set_plan(current_eval_context.get_state())) {
-        unordered_set<StateID> states = random_walk();
-        cout << "Number of states " << states.size() << endl;
-        writing_new_files(states);
+        random_walk_and_write();
         return SOLVED;
     }
 
@@ -318,9 +342,7 @@ SearchStatus EnforcedHillClimbingSearch::ehc() {
     log << "No solution - FAILED" << endl;
     cout << "Begin random walk with number of applied actions is 0";
     this->validator.num_actions_applied = 0;
-    unordered_set<StateID> states = random_walk();
-    cout << "Number of states " << states.size() << endl;
-    writing_new_files(states);
+    random_walk_and_write();
     return FAILED;
 }
 
@@ -365,7 +387,9 @@ public:
         add_option<int>("seed", "Random Seed", "0");
         add_option<int>("depth", "Depth of the Walk", "4");
         add_option<int>("num_walks", "Number of random walks", "3");
-        add_option<bool>("only_add_leaves", "TRUE");
+        add_option<std::string>("output_dir", "Directory to write new instances to");
+        add_option<int>("num_instances", "Number of new instances to generate per task", "2");
+        add_option<bool>("only_add_leaves", "whether to only add leaves node", "true");
         add_option<std::string>("python_program");
     }
 

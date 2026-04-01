@@ -75,15 +75,14 @@ void Validator::print_fluent_facts(const State &curr_state) const {
     }
 }
 
-void Validator::copy_and_write_new_problem_file(
-    const State &curr_state, int variant_id) const {
+bool Validator::copy_and_write_new_problem_file(
+    const State &curr_state, int variant_id, const string &output_dir) const {
         filesystem::path old_path = this->problem_file;
         string base_name = old_path.stem().string();
-        filesystem::path output_dir = old_path.parent_path() / base_name;
-        filesystem::create_directory(output_dir);
-        filesystem::path new_path =
-            output_dir /
-            (base_name + "-" + std::to_string(variant_id) + ".pddl");
+
+    filesystem::path output_path = filesystem::path(output_dir);
+    filesystem::create_directories(output_path);  // create if not exists
+    filesystem::path new_path = output_path / (base_name + "-" + std::to_string(variant_id) + ".pddl");
     {
         ifstream old_file(old_path.string());
         ofstream new_file(new_path.string());
@@ -139,12 +138,15 @@ void Validator::copy_and_write_new_problem_file(
             cout << "No solution found, deleting file: " << new_path.string()
                  << "\n";
             filesystem::remove(new_path);
+            return false;
         }
     } catch (const std::runtime_error &e) {
         cout << "Planner error: " << e.what()
              << ", deleting file: " << new_path.string() << "\n";
         filesystem::remove(new_path);
+        return false;
     }
+    return true;
 }
 State Validator::traverse(int num_actions) {
     State curr_state = task_proxy.get_initial_state();
@@ -254,12 +256,12 @@ void Validator::validate() {
 
 SearchStatus Validator::step() {
     // validate();
-    vector<State> visited_states =
-        random_walk(this->state_registry.get_initial_state(), 2, 3);
-    cout << "Size of the visited states: " << visited_states.size() << endl;
-    for (int i = 0; i < visited_states.size(); i++) {
-        copy_and_write_new_problem_file(visited_states[i], i);
-    }
+    // vector<State> visited_states =
+    //     random_walk(this->state_registry.get_initial_state(), 2, 3);
+    // cout << "Size of the visited states: " << visited_states.size() << endl;
+    // for (int i = 0; i < visited_states.size(); i++) {
+    //     copy_and_write_new_problem_file(visited_states[i], i);
+    // }
     // copy_and_write_new_problem_file(traverse(num_actions_applied));
     return SearchStatus::SOLVED;
 }

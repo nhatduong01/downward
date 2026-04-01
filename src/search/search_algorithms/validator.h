@@ -17,10 +17,10 @@ namespace validator {
 
 class Validator : public SearchAlgorithm {
     std::string python_file;
-    std::string problem_file;
-    std::string domain_file;
     ParsedPlan plan;
 public:
+    std::string problem_file;
+    std::string domain_file;
     int num_actions_applied;
     int seed;
     int depth;
@@ -36,7 +36,7 @@ public:
     void print_statistics() const override;
     void run_plan_generator();
     void print_fluent_facts(const State &) const;
-    void copy_and_write_new_problem_file(const State &, int) const;
+    bool copy_and_write_new_problem_file(const State &, int, const string&) const;
     State traverse(int num_actions);
     OperatorProxy pick_random_operator(const std::vector<OperatorProxy> &ops);
     bool checkIfSolvable(string file_path) const;

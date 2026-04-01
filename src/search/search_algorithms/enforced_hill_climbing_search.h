@@ -54,6 +54,8 @@ class EnforcedHillClimbingSearch : public SearchAlgorithm {
     void reach_state(const State &parent, OperatorID op_id, const State &state);
     SearchStatus ehc();
     validator::Validator validator;
+    std::string output_dir;
+    int num_instances;
 
 
 protected:
@@ -72,7 +74,8 @@ public:
         unordered_set<StateID> &visited_states, State curr, int depth,
         bool only_add_leaves);
     State traverse(int num_actions);
-    void writing_new_files(unordered_set<StateID>);
+    void writing_new_files(vector<StateID>);
+    void random_walk_and_write();
 
     virtual void print_statistics() const override;
 };
