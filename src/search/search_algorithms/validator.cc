@@ -178,7 +178,7 @@ OperatorProxy Validator::pick_random_operator(
 bool Validator::checkIfSolvable(string file_path) const {
     std::ostringstream cmd;
     // Time out after 10 minutes
-    cmd << "timeout 600 ../alternative_downward/fast-downward.py " << this->domain_file << " " << file_path
+    cmd << "timeout 240 ../alternative_downward/fast-downward.py " << this->domain_file << " " << file_path
         << " --search \"ehc(ff())\"" << " > /dev/null 2>&1";  // suppress all output;
     int ret = std::system(cmd.str().c_str());
     int exit_code = WEXITSTATUS(ret);
@@ -187,8 +187,13 @@ bool Validator::checkIfSolvable(string file_path) const {
         return true; // Solution found
     } else if (exit_code == 12) {
         return false; // No solution exists
-    } else if (exit_code == 124) {
-        cout << "Planner timed out after 10 minutes for file: "<< file_path << "\n";
+    }
+    else if (exit_code == 11) {
+        cout << "Unsolvable with current bound\n";
+        return false;
+    }
+     else if (exit_code == 124) {
+        cout << "Planner timed out after 4 minutes for file: "<< file_path << "\n";
         return false;
     }
     else {
