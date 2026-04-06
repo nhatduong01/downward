@@ -179,7 +179,7 @@ bool Validator::checkIfSolvable(string file_path) const {
     std::ostringstream cmd;
     // Time out after 10 minutes
     cmd << "timeout 240 ../alternative_downward/fast-downward.py " << this->domain_file << " " << file_path
-        << " --search \"ehc(ff())\"" << " > /dev/null 2>&1";  // suppress all output;
+        << " --search \"ehc(ff(), bound=infinity)\"" << " > /dev/null 2>&1";  // suppress all output;
     int ret = std::system(cmd.str().c_str());
     int exit_code = WEXITSTATUS(ret);
 
