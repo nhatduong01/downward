@@ -25,6 +25,7 @@ public:
     int seed;
     int depth;
     bool only_add_leaves;
+    bool follow_path;
     int num_walks;
     Validator(const plugins::Options &opts);
     SearchStatus step() override;

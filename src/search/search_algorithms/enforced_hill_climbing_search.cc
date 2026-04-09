@@ -242,32 +242,38 @@ void EnforcedHillClimbingSearch::writing_new_files(
 }
 
 unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
-    cout << "Starting random walk\n";
-    Plan plan = this->get_plan();
     unordered_set<StateID> visited_states;
-    // vector<State> visited_states;
-    // if (validator.num_actions_applied > plan.size()) {
-    //     throw std::logic_error(
-    //         "Number of applied actions exceeds the number of actions");
-    // }
-    while (validator.num_actions_applied > (int)plan.size()) {
-        validator.num_actions_applied --;
-    }
-    if (validator.num_actions_applied == 0) {
-        cout << "Applying from initial state for " << validator.problem_file << "\n";
-    }
-    // for (int i = 0; i < num_applied_actions; i++) {
-    //     State starting_state = traverse(i);
-    //     for (int j = 0; j < num_walks; j++)
-    //         recursive_random_walk(
-    //             visited_states, starting_state, depth, only_add_leaves);
-    // }
-    State starting_state = traverse(validator.num_actions_applied);
-    for (int j = 0; j < validator.num_walks; j++)
-        recursive_random_walk(
-            visited_states, starting_state, validator.depth, validator.only_add_leaves);
+    Plan plan = this->get_plan();
+    if (!validator.follow_path) {
+        cout << "Starting random walk\n";
 
-    cout << "End random walk\n";
+        while (validator.num_actions_applied > (int)plan.size()) {
+            validator.num_actions_applied --;
+        }
+        if (validator.num_actions_applied == 0) {
+            cout << "Applying from initial state for " << validator.problem_file << "\n";
+        }
+        State starting_state = traverse(validator.num_actions_applied);
+        for (int j = 0; j < validator.num_walks; j++)
+            recursive_random_walk(
+                visited_states, starting_state, validator.depth, validator.only_add_leaves);
+
+        cout << "End random walk\n";
+    }
+    else {
+
+        if (plan.size() == 0) {
+            throw std::runtime_error("Cannot follow the solution because there is no solution");
+        }
+        // Start from 1 to not include the initial state
+        State curr = state_registry.get_initial_state();
+        for (int i = 1; i < plan.size(); i++) {
+            OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
+            curr = state_registry.get_successor_state(curr, op);
+            visited_states.insert(curr.get_id());
+        }
+    }
+
     return visited_states;
 }
 
@@ -390,6 +396,7 @@ public:
         add_option<std::string>("output_dir", "Directory to write new instances to");
         add_option<int>("num_instances", "Number of new instances to generate per task", "2");
         add_option<bool>("only_add_leaves", "whether to only add leaves node", "true");
+        add_option<bool>("use_ehc_solution", "whether to follow the path of ehc algorithm", "false");
         add_option<std::string>("python_program");
     }
 

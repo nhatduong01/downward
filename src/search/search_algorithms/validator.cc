@@ -29,12 +29,13 @@ Validator::Validator(const plugins::Options &opts)
       seed(opts.get<int>("seed")),
       depth(opts.get<int>("depth")),
       num_walks(opts.get<int>("num_walks")),
-      only_add_leaves(opts.get<bool>("only_add_leaves")) {
+      only_add_leaves(opts.get<bool>("only_add_leaves")),
+      follow_path(opts.get<bool>("use_ehc_solution")) {
     // run_plan_generator();
     // PlanParser parser("generated_plan.plan");
     // plan = parser.parse();
     // plan.print_plan();
-}
+    }
 
 void Validator::run_plan_generator() {
     std::string generated_plan = "generated_plan.plan";
@@ -132,20 +133,22 @@ bool Validator::copy_and_write_new_problem_file(
         }
     }
     cout << "Copied to file: " << new_path.string() << "\n";
-
-    try {
-        if (!checkIfSolvable(new_path.string())) {
-            cout << "No solution found, deleting file: " << new_path.string()
-                 << "\n";
+    if (!this->follow_path) {
+        try {
+            if (!checkIfSolvable(new_path.string())) {
+                cout << "No solution found, deleting file: " << new_path.string()
+                     << "\n";
+                filesystem::remove(new_path);
+                return false;
+            }
+        } catch (const std::runtime_error &e) {
+            cout << "Planner error: " << e.what()
+                 << ", deleting file: " << new_path.string() << "\n";
             filesystem::remove(new_path);
             return false;
         }
-    } catch (const std::runtime_error &e) {
-        cout << "Planner error: " << e.what()
-             << ", deleting file: " << new_path.string() << "\n";
-        filesystem::remove(new_path);
-        return false;
     }
+
     return true;
 }
 State Validator::traverse(int num_actions) {
@@ -175,28 +178,43 @@ OperatorProxy Validator::pick_random_operator(
     std::uniform_int_distribution<std::size_t> dist(0, ops.size() - 1);
     return ops[dist(rng)];
 }
+
 bool Validator::checkIfSolvable(string file_path) const {
+    // Use a unique log file per call to avoid collisions
+    string log_file = file_path + ".log";
+
     std::ostringstream cmd;
-    // Time out after 10 minutes
-    cmd << "timeout 240 ../alternative_downward/fast-downward.py " << this->domain_file << " " << file_path
-        << " --search \"ehc(ff(), bound=infinity)\"" << " > /dev/null 2>&1";  // suppress all output;
+    cmd << "timeout 240 ../alternative_downward/fast-downward.py "
+        << this->domain_file << " " << file_path
+        << " --search \"ehc(ff(), bound=infinity)\""
+        << " > " << log_file << " 2>&1";
+
     int ret = std::system(cmd.str().c_str());
     int exit_code = WEXITSTATUS(ret);
 
     if (exit_code == 0) {
-        return true; // Solution found
+        // Success - discard the log
+        filesystem::remove(log_file);
+        return true;
     } else if (exit_code == 12) {
-        return false; // No solution exists
-    }
-    else if (exit_code == 11) {
-        cout << "Unsolvable with current bound\n";
+        // Truly unsolvable - discard the log
+        filesystem::remove(log_file);
         return false;
-    }
-     else if (exit_code == 124) {
-        cout << "Planner timed out after 4 minutes for file: "<< file_path << "\n";
+    } else if (exit_code == 11) {
+        cout << "Unsolvable with current bound for file: " << file_path << "\n";
+        filesystem::remove(log_file);
         return false;
-    }
-    else {
+    } else if (exit_code == 124) {
+        cout << "Planner timed out after 4 minutes for file: " << file_path << "\n";
+        cout << "Log saved to: " << log_file << "\n";
+        return false;
+    } else if (exit_code == 1) {
+        cout << "Planner ran out of memory for file: " << file_path << "\n";
+        cout << "Log saved to: " << log_file << "\n";
+        return false;
+    } else {
+        // Unexpected error - keep the log
+        cout << "Log saved to: " << log_file << "\n";
         throw std::runtime_error(
             "Planner failed with exit code: " + std::to_string(exit_code));
     }
