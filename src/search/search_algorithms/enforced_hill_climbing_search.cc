@@ -265,9 +265,10 @@ unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
         if (plan.size() == 0) {
             throw std::runtime_error("Cannot follow the solution because there is no solution");
         }
-        // Start from 1 to not include the initial state
         State curr = state_registry.get_initial_state();
-        for (int i = 1; i < plan.size(); i++) {
+        // Minus 1 to except the goal state
+
+        for (int i = 0; i < (int)plan.size() - 1; i++) {
             OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
             curr = state_registry.get_successor_state(curr, op);
             visited_states.insert(curr.get_id());
