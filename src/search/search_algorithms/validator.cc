@@ -186,7 +186,7 @@ bool Validator::checkIfSolvable(string file_path) const {
     std::ostringstream cmd;
     cmd << "timeout 240 ../alternative_downward/fast-downward.py "
         << this->domain_file << " " << file_path
-        << " --search \"ehc(ff(), bound=infinity)\""
+        << " --search \"astar(ff(), bound=infinity)\""
         << " > " << log_file << " 2>&1";
 
     int ret = std::system(cmd.str().c_str());
