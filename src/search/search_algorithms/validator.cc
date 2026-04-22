@@ -182,14 +182,16 @@ OperatorProxy Validator::pick_random_operator(
 bool Validator::checkIfSolvable(string file_path) const {
     // Use a unique log file per call to avoid collisions
     string log_file = file_path + ".log";
-
+    string sas_file = file_path + ".sas";
     std::ostringstream cmd;
     cmd << "timeout 240 ../alternative_downward/fast-downward.py "
+        << " --sas-file " << sas_file << " "
         << this->domain_file << " " << file_path
         << " --search \"astar(ff(), bound=infinity)\""
         << " > " << log_file << " 2>&1";
 
     int ret = std::system(cmd.str().c_str());
+    filesystem::remove(sas_file);
     int exit_code = WEXITSTATUS(ret);
 
     if (exit_code == 0) {
