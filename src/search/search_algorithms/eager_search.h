@@ -1,6 +1,8 @@
 #ifndef SEARCH_ALGORITHMS_EAGER_SEARCH_H
 #define SEARCH_ALGORITHMS_EAGER_SEARCH_H
 
+#include "validator.h"
+
 #include "../open_list.h"
 #include "../search_algorithm.h"
 
@@ -39,6 +41,7 @@ class EagerSearch : public SearchAlgorithm {
         ordered_set::OrderedSet<OperatorID> &preferred_operators);
     SearchStatus expand(const SearchNode &node);
     void generate_successors(const SearchNode &node);
+    validator::Validator validator;
 
 protected:
     virtual void initialize() override;
@@ -52,7 +55,8 @@ public:
         const std::shared_ptr<PruningMethod> &pruning,
         const std::shared_ptr<Evaluator> &lazy_evaluator,
         OperatorCost cost_type, int bound, double max_time,
-        const std::string &description, utils::Verbosity verbosity);
+        const std::string &description, utils::Verbosity verbosity,
+        const plugins::Options &opts);
 
     virtual void print_statistics() const override;
 

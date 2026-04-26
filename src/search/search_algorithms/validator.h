@@ -27,6 +27,9 @@ public:
     bool only_add_leaves;
     bool follow_path;
     int num_walks;
+    std::string output_dir;
+    int num_instances;
+    Plan returned_plan;
     Validator(const plugins::Options &opts);
     SearchStatus step() override;
     static void print_static_facts(State &);
@@ -41,6 +44,12 @@ public:
     State traverse(int num_actions);
     OperatorProxy pick_random_operator(const std::vector<OperatorProxy> &ops);
     bool checkIfSolvable(string file_path) const;
+    unordered_set<StateID> random_walk();
+    void recursive_random_walk(
+        unordered_set<StateID> &visited_states, State curr, int depth,
+        bool only_add_leaves);
+    void writing_new_files(vector<StateID>);
+    void random_walk_and_write(const Plan&);
 };
 
 }

@@ -26,14 +26,14 @@ EagerSearch::EagerSearch(
     const shared_ptr<PruningMethod> &pruning,
     const shared_ptr<Evaluator> &lazy_evaluator, OperatorCost cost_type,
     int bound, double max_time, const string &description,
-    utils::Verbosity verbosity)
+    utils::Verbosity verbosity, const plugins::Options &opts)
     : SearchAlgorithm(cost_type, bound, max_time, description, verbosity),
       reopen_closed_nodes(reopen_closed),
       open_list(open->create_state_open_list()),
       f_evaluator(f_eval), // default nullptr
       preferred_operator_evaluators(preferred),
       lazy_evaluator(lazy_evaluator), // default nullptr
-      pruning_method(pruning) {
+      pruning_method(pruning), validator(opts) {
     if (lazy_evaluator && !lazy_evaluator->does_cache_estimates()) {
         cerr << "lazy_evaluator must cache its estimates" << endl;
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
@@ -118,6 +118,8 @@ SearchStatus EagerSearch::step() {
     if (!node.has_value()) {
         assert(open_list->empty());
         log << "Completely explored state space -- no solution!" << endl;
+        this->validator.num_actions_applied = 0;
+        validator.random_walk_and_write(this->get_plan());
         return FAILED;
     }
 
@@ -199,8 +201,10 @@ SearchStatus EagerSearch::expand(const SearchNode &node) {
     statistics.inc_expanded();
 
     const State &state = node.get_state();
-    if (check_goal_and_set_plan(state))
+    if (check_goal_and_set_plan(state)) {
+        validator.random_walk_and_write(this->get_plan());
         return SOLVED;
+    }
 
     generate_successors(node);
     return IN_PROGRESS;

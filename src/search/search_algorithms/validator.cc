@@ -30,12 +30,14 @@ Validator::Validator(const plugins::Options &opts)
       depth(opts.get<int>("depth")),
       num_walks(opts.get<int>("num_walks")),
       only_add_leaves(opts.get<bool>("only_add_leaves")),
-      follow_path(opts.get<bool>("use_ehc_solution")) {
+      follow_path(opts.get<bool>("use_solution")),
+      output_dir(opts.get<string>("output_dir")), // add this
+      num_instances(opts.get<int>("num_instances")) {
     // run_plan_generator();
     // PlanParser parser("generated_plan.plan");
     // plan = parser.parse();
     // plan.print_plan();
-    }
+}
 
 void Validator::run_plan_generator() {
     std::string generated_plan = "generated_plan.plan";
@@ -78,12 +80,13 @@ void Validator::print_fluent_facts(const State &curr_state) const {
 
 bool Validator::copy_and_write_new_problem_file(
     const State &curr_state, int variant_id, const string &output_dir) const {
-        filesystem::path old_path = this->problem_file;
-        string base_name = old_path.stem().string();
+    filesystem::path old_path = this->problem_file;
+    string base_name = old_path.stem().string();
 
     filesystem::path output_path = filesystem::path(output_dir);
-    filesystem::create_directories(output_path);  // create if not exists
-    filesystem::path new_path = output_path / (base_name + "-" + std::to_string(variant_id) + ".pddl");
+    filesystem::create_directories(output_path); // create if not exists
+    filesystem::path new_path =
+        output_path / (base_name + "-" + std::to_string(variant_id) + ".pddl");
     {
         ifstream old_file(old_path.string());
         ofstream new_file(new_path.string());
@@ -136,8 +139,8 @@ bool Validator::copy_and_write_new_problem_file(
     if (!this->follow_path) {
         try {
             if (!checkIfSolvable(new_path.string())) {
-                cout << "No solution found, deleting file: " << new_path.string()
-                     << "\n";
+                cout << "No solution found, deleting file: "
+                     << new_path.string() << "\n";
                 filesystem::remove(new_path);
                 return false;
             }
@@ -152,20 +155,13 @@ bool Validator::copy_and_write_new_problem_file(
     return true;
 }
 State Validator::traverse(int num_actions) {
-    State curr_state = task_proxy.get_initial_state();
+    State curr = state_registry.get_initial_state();
+    Plan plan = this->returned_plan;
     for (int i = 0; i < num_actions; i++) {
-        OperatorProxy op = task_properties::find_operator(
-            plan.actions[i].to_string(), task_proxy.get_operators());
-        cout << "Applied action: " << op.get_name() << "\n";
-        if (task_properties::is_applicable(op, curr_state)) {
-            curr_state = curr_state.get_unregistered_successor(op);
-        } else {
-            cout << "Operator is not applicable: "
-                 << plan.actions[i].to_string() << endl;
-            throw std::runtime_error("Inapplicable action");
-        }
+        OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
+        curr = state_registry.get_successor_state(curr, op);
     }
-    return curr_state;
+    return curr;
 }
 
 void Validator::print_statistics() const {
@@ -184,10 +180,9 @@ bool Validator::checkIfSolvable(string file_path) const {
     string log_file = file_path + ".log";
     string sas_file = file_path + ".sas";
     std::ostringstream cmd;
-    cmd << "timeout 240 ../alternative_downward/fast-downward.py "
-        << " --sas-file " << sas_file << " "
-        << this->domain_file << " " << file_path
-        << " --search \"astar(ff(), bound=infinity)\""
+    cmd << "timeout 300 ../alternative_downward/fast-downward.py "
+        << " --sas-file " << sas_file << " " << this->domain_file << " "
+        << file_path << " --search \"astar(ff(), bound=infinity)\""
         << " > " << log_file << " 2>&1";
 
     int ret = std::system(cmd.str().c_str());
@@ -207,7 +202,8 @@ bool Validator::checkIfSolvable(string file_path) const {
         filesystem::remove(log_file);
         return false;
     } else if (exit_code == 124) {
-        cout << "Planner timed out after 4 minutes for file: " << file_path << "\n";
+        cout << "Planner timed out after 4 minutes for file: " << file_path
+             << "\n";
         cout << "Log saved to: " << log_file << "\n";
         return false;
     } else if (exit_code == 1) {
@@ -220,6 +216,105 @@ bool Validator::checkIfSolvable(string file_path) const {
         throw std::runtime_error(
             "Planner failed with exit code: " + std::to_string(exit_code));
     }
+}
+unordered_set<StateID> Validator::random_walk() {
+    unordered_set<StateID> visited_states;
+    Plan plan = this->returned_plan;
+    if (!this->follow_path) {
+        cout << "Starting random walk\n";
+
+        while (this->num_actions_applied > (int)plan.size()) {
+            cout << "Number of applied action greater than the plan size!\n";
+            cout << "Reducing the number by half\n";
+            this->num_actions_applied /= 2;
+        }
+        if (this->num_actions_applied == 0) {
+            cout << "Applying from initial state for " << this->problem_file
+                 << "\n";
+        }
+        State starting_state = traverse(this->num_actions_applied);
+        for (int j = 0; j < this->num_walks; j++)
+            recursive_random_walk(
+                visited_states, starting_state, this->depth,
+                this->only_add_leaves);
+
+        cout << "End random walk\n";
+    } else {
+        if (plan.size() == 0) {
+            throw std::runtime_error(
+                "Cannot follow the solution because there is no solution");
+        }
+        State curr = state_registry.get_initial_state();
+        // Minus 1 to except the goal state
+
+        for (int i = 0; i < (int)plan.size() - 1; i++) {
+            OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
+            curr = state_registry.get_successor_state(curr, op);
+            visited_states.insert(curr.get_id());
+        }
+    }
+
+    return visited_states;
+}
+void Validator::recursive_random_walk(
+    unordered_set<StateID> &visited_states, State curr, int depth,
+    bool only_add_leaves) {
+    if (depth < 0)
+        return;
+
+    vector<OperatorProxy> applicable_ops =
+        task_properties::find_applicable_operators(
+            curr, task_proxy.get_operators());
+
+    if (applicable_ops.empty() ||
+        task_properties::is_goal_state(task_proxy, curr))
+        return;
+
+    if (!only_add_leaves) {
+        visited_states.insert(curr.get_id());
+    } else {
+        // When depth == 0
+        if (depth == 0) {
+            visited_states.insert(curr.get_id());
+        }
+    }
+
+    OperatorProxy random_op = this->pick_random_operator(applicable_ops);
+    State successor = state_registry.get_successor_state(curr, random_op);
+    recursive_random_walk(
+        visited_states, successor, depth - 1, only_add_leaves);
+}
+void Validator::writing_new_files(vector<StateID> states) {
+    cout << "Beginning writing_new_files\n";
+    int idx = 0;
+    int written = 0;
+    for (auto state : states) {
+        if (written >= num_instances)
+            break;
+        bool success = this->copy_and_write_new_problem_file(
+            state_registry.lookup_state(state), idx, output_dir);
+        if (success)
+            written++;
+        idx++;
+    }
+    cout << "Written " << written << " files" << " for" << this->problem_file
+         << "\n";
+    cout << "Ending writing_new_files\n";
+}
+void Validator::random_walk_and_write(const Plan &plan) {
+    this->returned_plan = plan;
+    unordered_set<StateID> states = this->random_walk();
+    if ((int)states.size() < num_instances) {
+        cout << "Warning: only " << states.size() << " for "
+             << this->problem_file << " states available, needed "
+             << num_instances << "\n";
+    }
+    vector<StateID> states_vec(states.begin(), states.end());
+    std::shuffle(
+        states_vec.begin(), states_vec.end(),
+        std::mt19937{(unsigned)this->seed});
+    cout << "Number of states: " << states_vec.size() << endl;
+    writing_new_files(states_vec);
 }
 
 void Validator::random_walk_recursive(
@@ -280,14 +375,6 @@ void Validator::validate() {
 }
 
 SearchStatus Validator::step() {
-    // validate();
-    // vector<State> visited_states =
-    //     random_walk(this->state_registry.get_initial_state(), 2, 3);
-    // cout << "Size of the visited states: " << visited_states.size() << endl;
-    // for (int i = 0; i < visited_states.size(); i++) {
-    //     copy_and_write_new_problem_file(visited_states[i], i);
-    // }
-    // copy_and_write_new_problem_file(traverse(num_actions_applied));
     return SearchStatus::SOLVED;
 }
 

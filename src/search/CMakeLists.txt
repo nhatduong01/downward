@@ -998,6 +998,10 @@ create_fast_downward_library(
         SOURCES
         search_algorithms/validator
         search_algorithms/plan_parser
+        search_algorithms/plugin_lazy_greedy
+        search_algorithms/eager_search
+        search_algorithms/lazy_search
+        search_algorithms/plugin_eager_greedy
         DEPENDS
         search_common
         successor_generator

@@ -54,6 +54,17 @@ public:
             "is equivalent to\n"
             "```\n--search \"eager(single(eval1))\"\n```\n",
             true);
+        add_option<std::string>("domain_file");
+        add_option<std::string>("problem_file");
+        add_option<int>("num_actions");
+        add_option<int>("seed", "Random Seed", "0");
+        add_option<int>("depth", "Depth of the Walk", "4");
+        add_option<int>("num_walks", "Number of random walks", "3");
+        add_option<std::string>("output_dir", "Directory to write new instances to");
+        add_option<int>("num_instances", "Number of new instances to generate per task", "2");
+        add_option<bool>("only_add_leaves", "whether to only add leaves node", "true");
+        add_option<bool>("use_solution", "whether to follow the path of the algorithm", "false");
+        add_option<std::string>("python_program");
     }
 
     virtual shared_ptr<eager_search::EagerSearch> create_component(
@@ -64,7 +75,7 @@ public:
                 opts.get_list<shared_ptr<Evaluator>>("preferred"),
                 opts.get<int>("boost")),
             false, nullptr, opts.get_list<shared_ptr<Evaluator>>("preferred"),
-            eager_search::get_eager_search_arguments_from_options(opts));
+            eager_search::get_eager_search_arguments_from_options(opts), opts);
     }
 };
 

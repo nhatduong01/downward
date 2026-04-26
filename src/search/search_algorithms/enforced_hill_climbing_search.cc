@@ -64,9 +64,8 @@ EnforcedHillClimbingSearch::EnforcedHillClimbingSearch(
       current_phase_start_g(-1),
       num_ehc_phases(0),
       last_num_expanded(-1),
-      validator(opts),
-      output_dir(opts.get<string>("output_dir")),      // add this
-      num_instances(opts.get<int>("num_instances")){
+      validator(opts)
+    {
     for (const shared_ptr<Evaluator> &eval : preferred_operator_evaluators) {
         eval->get_path_dependent_evaluators(path_dependent_evaluators);
     }
@@ -174,116 +173,14 @@ void EnforcedHillClimbingSearch::expand(EvaluationContext &eval_context) {
     node.close();
 }
 
-void EnforcedHillClimbingSearch::random_walk_and_write() {
-    unordered_set<StateID> states = random_walk();
-    if ((int)states.size() < num_instances) {
-        cout << "Warning: only " << states.size() << " for "<< validator.problem_file
-             << " states available, needed " << num_instances << "\n";
-    }
-    vector<StateID> states_vec(states.begin(), states.end());
-    std::shuffle(states_vec.begin(), states_vec.end(), std::mt19937{(unsigned)validator.seed});
-    cout << "Number of states: " << states_vec.size() << endl;
-    writing_new_files(states_vec);
-}
 
-void EnforcedHillClimbingSearch::recursive_random_walk(
-    unordered_set<StateID> &visited_states, State curr, int depth,
-    bool only_add_leaves) {
-    if (depth < 0)
-        return;
-
-    vector<OperatorProxy> applicable_ops =
-        task_properties::find_applicable_operators(
-            curr, task_proxy.get_operators());
-
-    if (applicable_ops.empty() ||
-    task_properties::is_goal_state(task_proxy, curr))
-        return;
-
-    if (!only_add_leaves) {
-        visited_states.insert(curr.get_id());
-    } else {
-        // When depth == 0
-        if (depth == 0) {
-            visited_states.insert(curr.get_id());
-        }
-    }
-
-
-    OperatorProxy random_op = validator.pick_random_operator(applicable_ops);
-    State successor = state_registry.get_successor_state(curr, random_op);
-    recursive_random_walk(
-        visited_states, successor, depth - 1, only_add_leaves);
-}
-
-State EnforcedHillClimbingSearch::traverse(int num_actions) {
-    State curr = state_registry.get_initial_state();
-    Plan plan = this->get_plan();
-    for (int i = 0; i < num_actions; i++) {
-        OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
-        curr = state_registry.get_successor_state(curr, op);
-    }
-    return curr;
-}
-void EnforcedHillClimbingSearch::writing_new_files(
-    vector<StateID> states) {
-    cout << "Beginning writing_new_files\n";
-    int idx = 0;
-    int written = 0;
-    for (auto state : states) {
-        if (written >= num_instances) break;
-        bool success = validator.copy_and_write_new_problem_file(
-            state_registry.lookup_state(state), idx, output_dir);
-        if (success) written++;
-        idx++;
-    }
-    cout << "Written " << written << " files" << " for" << validator.problem_file  <<"\n";
-    cout << "Ending writing_new_files\n";
-}
-
-unordered_set<StateID> EnforcedHillClimbingSearch::random_walk() {
-    unordered_set<StateID> visited_states;
-    Plan plan = this->get_plan();
-    if (!validator.follow_path) {
-        cout << "Starting random walk\n";
-
-        while (validator.num_actions_applied > (int)plan.size()) {
-            validator.num_actions_applied --;
-        }
-        if (validator.num_actions_applied == 0) {
-            cout << "Applying from initial state for " << validator.problem_file << "\n";
-        }
-        State starting_state = traverse(validator.num_actions_applied);
-        for (int j = 0; j < validator.num_walks; j++)
-            recursive_random_walk(
-                visited_states, starting_state, validator.depth, validator.only_add_leaves);
-
-        cout << "End random walk\n";
-    }
-    else {
-
-        if (plan.size() == 0) {
-            throw std::runtime_error("Cannot follow the solution because there is no solution");
-        }
-        State curr = state_registry.get_initial_state();
-        // Minus 1 to except the goal state
-
-        for (int i = 0; i < (int)plan.size() - 1; i++) {
-            OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
-            curr = state_registry.get_successor_state(curr, op);
-            visited_states.insert(curr.get_id());
-        }
-    }
-
-    return visited_states;
-}
 
 SearchStatus EnforcedHillClimbingSearch::step() {
     last_num_expanded = statistics.get_expanded();
     search_progress.check_progress(current_eval_context);
 
     if (check_goal_and_set_plan(current_eval_context.get_state())) {
-        random_walk_and_write();
+        validator.random_walk_and_write(this->get_plan());
         return SOLVED;
     }
 
@@ -349,7 +246,7 @@ SearchStatus EnforcedHillClimbingSearch::ehc() {
     log << "No solution - FAILED" << endl;
     cout << "Begin random walk with number of applied actions is 0";
     this->validator.num_actions_applied = 0;
-    random_walk_and_write();
+    validator.random_walk_and_write(this->get_plan());
     return FAILED;
 }
 
@@ -397,7 +294,7 @@ public:
         add_option<std::string>("output_dir", "Directory to write new instances to");
         add_option<int>("num_instances", "Number of new instances to generate per task", "2");
         add_option<bool>("only_add_leaves", "whether to only add leaves node", "true");
-        add_option<bool>("use_ehc_solution", "whether to follow the path of ehc algorithm", "false");
+        add_option<bool>("use_solution", "whether to follow the path of the algorithm", "false");
         add_option<std::string>("python_program");
     }
 
