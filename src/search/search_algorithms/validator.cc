@@ -182,7 +182,7 @@ bool Validator::checkIfSolvable(string file_path) const {
     std::ostringstream cmd;
     cmd << "timeout 300 ../alternative_downward/fast-downward.py "
         << " --sas-file " << sas_file << " " << this->domain_file << " "
-        << file_path << " --search \"astar(ff(), bound=infinity)\""
+        << file_path << " --search \"eager_greedy(evals=[ff()])\""
         << " > " << log_file << " 2>&1";
 
     int ret = std::system(cmd.str().c_str());
