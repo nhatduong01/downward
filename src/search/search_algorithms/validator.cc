@@ -179,14 +179,17 @@ bool Validator::checkIfSolvable(string file_path) const {
     // Use a unique log file per call to avoid collisions
     string log_file = file_path + ".log";
     string sas_file = file_path + ".sas";
+    string plan_file = file_path + ".plan";
     std::ostringstream cmd;
     cmd << "timeout 300 ../alternative_downward/fast-downward.py "
-        << " --sas-file " << sas_file << " " << this->domain_file << " "
+        << " --sas-file " << sas_file << " " << " --plan-file " << plan_file <<" "
+        << this->domain_file << " "
         << file_path << " --search \"eager_greedy(evals=[ff()])\""
         << " > " << log_file << " 2>&1";
 
     int ret = std::system(cmd.str().c_str());
     filesystem::remove(sas_file);
+    filesystem::remove(plan_file);
     int exit_code = WEXITSTATUS(ret);
 
     if (exit_code == 0) {
