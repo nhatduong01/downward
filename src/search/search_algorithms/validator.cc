@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 // #include <string>
@@ -32,41 +33,165 @@ Validator::Validator(const plugins::Options &opts)
       only_add_leaves(opts.get<bool>("only_add_leaves")),
       follow_path(opts.get<bool>("use_solution")),
       output_dir(opts.get<string>("output_dir")), // add this
-      num_instances(opts.get<int>("num_instances")) {
-    // run_plan_generator();
-    // PlanParser parser("generated_plan.plan");
-    // plan = parser.parse();
-    // plan.print_plan();
+      num_instances(opts.get<int>("num_instances")),
+      evaluator(opts.get<shared_ptr<Evaluator>>("h")),
+      num_endeavors(opts.get<int>("num_endeavors")),
+      clean(opts.get<bool>("clean")) {
 }
 
-void Validator::run_plan_generator() {
-    std::string generated_plan = "generated_plan.plan";
-    std::string generated_log = "generated_plan.log";
+void Validator::initialize() {
+    assert(evaluator);
+    log << "Beginning solving the problem" << endl;
+    if (python_file.compare("None") != 0) {
+        string plan_path = run_plan_generator(problem_file);
+        if (plan_path == "ERROR") {
+            log << "[ERROR]: Initial plan generation errored, will return FAILED\n";
+            parsed_plan = {};
+            attempts = INT_MAX;
+            return;
+        }
+        if (plan_path == "TIMEOUT") {
+            log << "[TIMEOUT]: Initial plan generation timed out, will return FAILED\n";
+            parsed_plan = {};
+            attempts = INT_MAX;
+            return;
+        }
+        PlanParser parser(plan_path);
+        parsed_plan = parser.parse();
+        attempts = 0;
+    }
+}
+
+SearchStatus Validator::step() {
+    if (python_file != "None") {
+        filesystem::path curr_file = this->problem_file;
+        string original_base = curr_file.stem().string();
+        State curr = this->task_proxy.get_initial_state();
+        int start_idx = 0;
+        while (attempts <= num_endeavors) {
+            int result = validate(curr);
+            if (static_cast<unsigned>(result) == parsed_plan.actions.size()) {
+                State final_state =
+                    get_intermediate_state(start_idx, result, curr);
+                if (task_properties::is_goal_state(task_proxy, final_state)) {
+                    set_plan(plan);
+                } else {
+                    log << "[ERROR]: Generated sequence does not reach goal"
+                        << endl;
+                }
+                break;
+            }
+            if (attempts + 1 > num_endeavors)
+                break;
+            State failed_state =
+                get_intermediate_state(start_idx, result, curr);
+            curr = failed_state;
+            bool new_file =
+                copy_and_write_new_problem_file(failed_state, attempts, ".");
+            if (new_file) {
+                filesystem::path curr_path = filesystem::current_path();
+                string new_name =
+                    original_base + "-" + std::to_string(attempts) + ".pddl";
+                this->problem_file = curr_path / new_name;
+                string plan_path = run_plan_generator(new_name);
+                if (plan_path == "ERROR") {
+                    log << "[ERROR]: Generating plan for idx: " << attempts << endl;
+                    break;
+                }
+                if (plan_path == "TIMEOUT") {
+                    log << "[TIMEOUT]: Generating plan for idx: " << attempts << endl;
+                    break;
+                }
+                PlanParser parser(plan_path);
+                parsed_plan = parser.parse();
+                attempts++;
+            } else {
+                log << "[ERROR]: Error generating the intermediate state file\n";
+                break;
+            }
+            start_idx += result;
+        }
+
+        if (clean) {
+            // Clean up all temporary variant files: instance-10-0.pddl,
+            // instance-10-0.log, etc.
+            filesystem::path curr_path = filesystem::current_path();
+            for (const auto &entry :
+                 filesystem::directory_iterator(curr_path)) {
+                if (!entry.is_regular_file())
+                    continue;
+
+                string filename = entry.path().filename().string();
+                string stem = entry.path().stem().string();
+
+                if (stem == original_base ||
+                    stem.rfind(original_base + "-", 0) == 0) {
+                    filesystem::remove(entry.path());
+                }
+            }
+        }
+        if (found_solution()) {
+            return SOLVED;
+        }
+    }
+    return FAILED;
+}
+
+string Validator::run_plan_generator(string file_name) const {
+    filesystem::path file_path = file_name;
+    string base_name = file_path.stem().string();
+    std::string generated_plan = base_name + ".plan";
+    std::string generated_log = base_name + ".log";
     const std::string python_generator =
-        "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine/generate_plan_for_example.py";
+        "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine-private/generate_plan_for_example.py";
     const std::string python_exec =
-        "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine/venv/bin/python";
+        "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine-private/venv/bin/python";
+
     std::ostringstream cmd;
-    cmd << python_exec << " " << python_generator << " -t 30 -p " << domain_file
+    cmd << python_exec << " " << python_generator << " -t 45 -p " << domain_file
         << " " << problem_file << " " << python_file << " " << generated_plan
         << " " << generated_log;
 
     int ret = std::system(cmd.str().c_str());
 
     if (ret == -1) {
-        throw std::runtime_error("Failed to start Python process");
+        log << "[ERROR]: Failed to start Python process\n";
+        return "ERROR";
     }
 
-    if (WIFEXITED(ret)) {
-        int exit_code = WEXITSTATUS(ret);
-        if (exit_code != 0) {
-            std::ostringstream err;
-            err << "Python plan generator failed with exit code " << exit_code;
-            throw std::runtime_error(err.str());
-        }
-    } else {
-        throw std::runtime_error("Python process terminated abnormally");
+    if (!WIFEXITED(ret)) {
+        log << "[ERROR]: Python process terminated abnormally\n";
+        return "ERROR";
     }
+
+    if (!filesystem::exists(generated_plan)) {
+        if (filesystem::exists(generated_log)) {
+            std::ifstream log_in(generated_log);
+            std::string log_content(
+                (std::istreambuf_iterator<char>(log_in)),
+                std::istreambuf_iterator<char>());
+            if (log_content.find("result of a timeout") != std::string::npos) {
+                log << "[TIMEOUT]: Plan generator timed out for " << file_name
+                    << "\n";
+                return "TIMEOUT";
+            }
+            if (log_content.find("Generated plan is empty") !=
+                std::string::npos) {
+                log << "[EMPTY]: Plan generator returned empty plan for "
+                    << file_name << "\n";
+                return "ERROR";
+            }
+            if (log_content.find("threw error") != std::string::npos) {
+                log << "[ERROR]: Plan generator threw error for " << file_name
+                    << "\n";
+                return "ERROR";
+            }
+        }
+        log << "[ERROR]: Plan file not created for " << file_name << "\n";
+        return "ERROR";
+    }
+
+    return generated_plan;
 }
 
 void Validator::print_fluent_facts(const State &curr_state) const {
@@ -81,17 +206,32 @@ void Validator::print_fluent_facts(const State &curr_state) const {
 bool Validator::copy_and_write_new_problem_file(
     const State &curr_state, int variant_id, const string &output_dir) const {
     filesystem::path old_path = this->problem_file;
-    string base_name = old_path.stem().string();
+    string base_name =
+        old_path.stem().string(); // e.g. "instance-10-0" or "instance-10"
+
+    std::regex has_variant_suffix(R"(^(.*-\d+)-\d+$)");
+    std::smatch match;
+    string clean_base;
+    if (std::regex_match(base_name, match, has_variant_suffix)) {
+        clean_base = match[1].str(); // e.g. "instance-10-0" -> "instance-10"
+    } else {
+        clean_base = base_name; // e.g. "instance-10" -> "instance-10"
+    }
 
     filesystem::path output_path = filesystem::path(output_dir);
-    filesystem::create_directories(output_path); // create if not exists
+    filesystem::create_directories(output_path);
     filesystem::path new_path =
-        output_path / (base_name + "-" + std::to_string(variant_id) + ".pddl");
+        output_path / (clean_base + "-" + std::to_string(variant_id) + ".pddl");
     {
         ifstream old_file(old_path.string());
         ofstream new_file(new_path.string());
-        if (!old_file || !new_file) {
-            throw std::runtime_error("Could not open file");
+        if (!new_file) {
+            throw std::runtime_error(
+                "Could not open OUTPUT file: " + new_path.string());
+        }
+        if (!old_file) {
+            throw std::runtime_error(
+                "Could not open INPUT file: " + old_path.string());
         }
 
         std::string each_line;
@@ -156,10 +296,18 @@ bool Validator::copy_and_write_new_problem_file(
 }
 State Validator::traverse(int num_actions) {
     State curr = state_registry.get_initial_state();
-    Plan plan = this->returned_plan;
     for (int i = 0; i < num_actions; i++) {
-        OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
+        OperatorProxy op = this->task_proxy.get_operators()[returned_plan[i]];
         curr = state_registry.get_successor_state(curr, op);
+    }
+    return curr;
+}
+State Validator::get_intermediate_state(
+    int start_idx, int num_actions, State starting_state) const {
+    State curr = starting_state;
+    for (int i = start_idx; i < start_idx + num_actions; i++) {
+        OperatorProxy op = this->task_proxy.get_operators()[plan[i]];
+        curr = curr.get_unregistered_successor(op);
     }
     return curr;
 }
@@ -182,9 +330,9 @@ bool Validator::checkIfSolvable(string file_path) const {
     string plan_file = file_path + ".plan";
     std::ostringstream cmd;
     cmd << "timeout 300 ../alternative_downward/fast-downward.py "
-        << " --sas-file " << sas_file << " " << " --plan-file " << plan_file <<" "
-        << this->domain_file << " "
-        << file_path << " --search \"eager_greedy(evals=[ff()])\""
+        << " --sas-file " << sas_file << " " << " --plan-file " << plan_file
+        << " " << this->domain_file << " " << file_path
+        << " --search \"eager_greedy(evals=[ff()])\""
         << " > " << log_file << " 2>&1";
 
     int ret = std::system(cmd.str().c_str());
@@ -350,35 +498,24 @@ std::vector<State> Validator::random_walk(
     return visited_states;
 }
 
-void Validator::validate() {
-    State curr_state = this->state_registry.get_initial_state();
+int Validator::validate(State starting_state) {
+    State curr_state = starting_state;
     OperatorsProxy all_ops = this->task_proxy.get_operators();
     int idx = 0;
-    bool is_inapplicable = false;
-    for (auto &each_op : plan.actions) {
+    for (auto &each_op : parsed_plan.actions) {
         OperatorProxy op =
             task_properties::find_operator(each_op.to_string(), all_ops);
         if (task_properties::is_applicable(op, curr_state)) {
-            curr_state =
-                this->state_registry.get_successor_state(curr_state, op);
+            curr_state = curr_state.get_unregistered_successor(op);
+            plan.emplace_back(op.get_id());
             idx++;
         } else {
             cout << "Operator is not applicable: " << each_op.to_string()
                  << endl;
-            is_inapplicable = true;
-            break;
+            return idx;
         }
     }
-    bool is_goal = task_properties::is_goal_state(this->task_proxy, curr_state);
-    if (!is_inapplicable && is_goal) {
-        cout << "The plan is valid!!\n";
-    } else {
-        cout << "The plan is not valid\n";
-    }
-}
-
-SearchStatus Validator::step() {
-    return SearchStatus::SOLVED;
+    return idx;
 }
 
 class ValidatorFeature
@@ -386,16 +523,35 @@ class ValidatorFeature
 public:
     ValidatorFeature() : TypedFeature("validator") {
         add_option<std::string>(
-            "python_program", "Path to the"
-                              "python program");
+            "python_program",
+            "Path to the"
+            "python program",
+            "None");
         add_option<std::string>("domain_file");
         add_option<std::string>("problem_file");
-        add_option<int>("num_actions");
-        add_option<int>("seed");
+        add_option<int>("num_actions", "Number of actions applied", "3");
+        add_option<int>("seed", "random seed", "0");
         add_option<utils::Verbosity>("verbosity", "Verbosity level");
         add_option<OperatorCost>("cost_type", "Cost type");
         add_option<double>("max_time", "Max time");
         add_option<int>("bound", "Bound");
+        add_option<int>("depth", "Depth of the Walk", "4");
+        add_option<bool>(
+            "only_add_leaves", "whether to only add leaves node", "true");
+        add_option<bool>(
+            "use_solution", "whether to follow the path of the algorithm",
+            "false");
+        add_option<std::string>(
+            "output_dir", "Directory to write new instances to", "None");
+        add_option<int>("num_walks", "Number of random walks", "3");
+        add_option<int>(
+            "num_instances", "Number of new instances to generate per task",
+            "2");
+        add_option<shared_ptr<Evaluator>>("h", "", "ff()");
+        add_option<int>(
+            "num_endeavors", "Number of times trying to solve the task", "3");
+        add_option<bool>(
+            "clean", "whether to clean the generated files", "true");
     }
 
     virtual shared_ptr<Validator> create_component(
