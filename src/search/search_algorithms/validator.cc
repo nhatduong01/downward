@@ -43,6 +43,7 @@ void Validator::initialize() {
     assert(evaluator);
     log << "Beginning solving the problem" << endl;
     if (python_file.compare("None") != 0) {
+        filesystem::create_directory(output_dir);
         string plan_path = run_plan_generator(problem_file);
         if (plan_path == "ERROR") {
             log << "[ERROR]: Initial plan generation errored, will return FAILED\n";
@@ -87,12 +88,12 @@ SearchStatus Validator::step() {
                 get_intermediate_state(start_idx, result, curr);
             curr = failed_state;
             bool new_file =
-                copy_and_write_new_problem_file(failed_state, attempts, ".");
+                copy_and_write_new_problem_file(failed_state, attempts, this->output_dir);
             if (new_file) {
-                filesystem::path curr_path = filesystem::current_path();
+                filesystem::path output_path = this->output_dir;
                 string new_name =
                     original_base + "-" + std::to_string(attempts) + ".pddl";
-                this->problem_file = curr_path / new_name;
+                this->problem_file = output_path / new_name;
                 string plan_path = run_plan_generator(new_name);
                 if (plan_path == "ERROR") {
                     log << "[ERROR]: Generating plan for idx: " << attempts << endl;
@@ -115,9 +116,9 @@ SearchStatus Validator::step() {
         if (clean) {
             // Clean up all temporary variant files: instance-10-0.pddl,
             // instance-10-0.log, etc.
-            filesystem::path curr_path = filesystem::current_path();
+            filesystem::path output_path = this->output_dir;
             for (const auto &entry :
-                 filesystem::directory_iterator(curr_path)) {
+                 filesystem::directory_iterator(output_path)) {
                 if (!entry.is_regular_file())
                     continue;
 
@@ -140,8 +141,9 @@ SearchStatus Validator::step() {
 string Validator::run_plan_generator(string file_name) const {
     filesystem::path file_path = file_name;
     string base_name = file_path.stem().string();
-    std::string generated_plan = base_name + ".plan";
-    std::string generated_log = base_name + ".log";
+    filesystem::path output_path = this->output_dir;
+    filesystem::path generated_plan =  output_path/ (base_name + ".plan");
+    filesystem::path generated_log = output_path / (base_name + ".log");
     const std::string python_generator =
         "/Users/duongnguyen/UdS_Master/MasterThesis/genplan-strategy-refine-private/generate_plan_for_example.py";
     const std::string python_exec =
